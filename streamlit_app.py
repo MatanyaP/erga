@@ -5,7 +5,7 @@ import os
 import requests
 import io
 from PIL import Image
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 import base64
 import json
 import re
@@ -22,15 +22,18 @@ import json
 from bs4 import BeautifulSoup  # You'll need to install this: pip install beautifulsoup4
 from typing import Union, Optional, Tuple
 
-# --- Configuration ---
-load_dotenv()
-
-# Configure API keys
-# GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# MONGODB_URI = os.getenv("MONGODB_URI")
-GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-MONGODB_URI = st.secrets["MONGODB_URI"]
-
+# Configure API keys using st.secrets
+try:
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+    MONGODB_URI = st.secrets["MONGODB_URI"]
+    # Get the app password from secrets
+    APP_PASSWORD = st.secrets.get("APP_PASSWORD") # Use .get() for safer access
+except KeyError as e:
+    st.error(f"❌ Missing secret key: {e}. Please check your secrets configuration.")
+    st.stop()
+except Exception as e:
+    st.error(f"❌ Error loading secrets: {e}")
+    st.stop()
 
 # Check if keys are loaded
 if not GEMINI_API_KEY:
@@ -1023,6 +1026,43 @@ def add_manual_image_upload(recipe_data):
 
     return False
 
+# ============================
+# --- Password Check Function ---
+# ============================
+def check_password():
+    """Returns True if the password is correct or already authenticated, False otherwise."""
+    # If password is correct in session state, allow access
+    if st.session_state.get("password_correct", False):
+        return True
+
+    # Check if password is configured in secrets
+    if not APP_PASSWORD:
+        st.error(get_translation("password_not_set"), icon="⚠️")
+        return False # Can't proceed without a configured password
+
+    # Use a form to prevent rerunning the app on every key typed in password field
+    with st.form("password_form"):
+        password = st.text_input(
+            get_translation("enter_password"),
+            type="password",
+            key="password_input_field" # Give a unique key
+        )
+        submitted = st.form_submit_button(get_translation("login"))
+
+        if submitted:
+            if password == APP_PASSWORD:
+                st.session_state.password_correct = True
+                # Rerun after successful login to clear the form and show the app
+                st.rerun()
+            elif password: # Only show error if something was submitted
+                st.error(get_translation("incorrect_password"), icon="🚨")
+                st.session_state.password_correct = False
+            # else: do nothing if submitted empty
+
+    # If the form wasn't submitted successfully with the correct password, deny access
+    return st.session_state.get("password_correct", False)
+
+
 # --- Main Application ---
 def main():
     st.set_page_config(
@@ -1326,6 +1366,13 @@ def main():
     )
 
     st.title(get_translation("app_title"), anchor=False)
+
+    if "password_correct" not in st.session_state:
+        st.session_state.password_correct = False
+
+    # --- Execute Password Check ---
+    if not check_password():
+        st.stop() # Stop the app execution if password check fails
 
     # --- Session State Initialization ---
     if "extracted_recipe" not in st.session_state:
